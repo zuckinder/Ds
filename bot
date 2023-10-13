@@ -1,0 +1,88 @@
+import os
+import json
+import time
+
+import discord
+from discord.ext import commands
+from discord.ext.commands import BucketType
+
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+balances_file = "balances.json"
+
+
+def load_balances():
+    if os.path.exists(balances_file):
+        with open(balances_file) as f:
+            return json.load(f)
+    else:
+        return {}
+
+
+def save_balances():
+    with open(balances_file, "w") as f:
+        json.dump(balances, f)
+
+
+balances = load_balances()
+
+
+def get_balance(user_id):
+    return balances.get(str(user_id), 0)
+
+
+def increase_balance(user_id, amount):
+    balances[str(user_id)] = get_balance(user_id) + amount
+    save_balances()
+
+
+@bot.command()
+async def balance(ctx):
+    balance = get_balance(ctx.author.id)
+    await ctx.send(f'Your balance is: {balance}')
+
+
+def seconds_to_minutes(seconds):
+    return int(seconds // 60)
+
+
+@bot.command()
+@commands.cooldown(1, 1800, BucketType.user)
+async def collect(ctx):
+    increase_balance(ctx.author.id, 30000)
+    await ctx.send('Added 30000 to your balance.')
+
+
+@bot.command()
+@commands.has_role('Administrator')
+async def give_cash(ctx, member: discord.Member, amount: int):
+    increase_balance(member.id, amount)
+    await ctx.send(f'Gave {amount} to {member.name}.')
+
+
+@bot.command()
+@commands.has_role('Administrator')
+async def take_cash(ctx, member: discord.Member, amount: int):
+    user_id = member.id
+    if get_balance(user_id) >= amount:
+        balances[str(user_id)] -= amount
+        save_balances()
+        await ctx.send(f'Took {amount} from {member.name}.')
+    else:
+        await ctx.send(f'{member.name} does not have enough balance.')
+
+
+@collect.error
+async def collect_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        minutes = seconds_to_minutes(error.retry_after)
+        await ctx.send(f'You can use this command again in {minutes} minute(s).')
+
+
+bot_token = os.getenv("BOT_TOKEN")
+
+if bot_token is None:
+    raise ValueError("Bot token is not set in the environment variables.")
+
+bot.run(bot_token)
